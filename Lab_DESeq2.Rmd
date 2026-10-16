@@ -1,5 +1,5 @@
 ---
-title: "Lab 3: Differential expression with DESeq2"
+title: "Lab 08: Differential expression with DESeq2"
 output:
   html_document:
     toc: true
@@ -113,13 +113,6 @@ A **package** is a bundle of extra functions that someone else wrote. We use:
 - **tidyverse**: reading, reshaping, and plotting tables
 - **DESeq2**: differential expression analysis
 - **pheatmap** and **RColorBrewer**: heatmaps and color palettes
-
-You **install** a package once per computer, and **load** it with `library()` at the start
-of every session. These packages should already be installed in the class environment.
-If `library()` gives you an error, copy the lines from the install chunk below into the
-Console and run them once. The chunk is set not to run when you knit (`eval=FALSE`).
-Installing can take several minutes. If R asks "Update all/some/none?", type `n` and
-press Enter.
 
 These packages below should already be installed by default on the SCC. 
 
@@ -449,16 +442,17 @@ res_tbl
 **Q3.1** How many genes are significant at `padj < 0.1`? Use the `filter()` function.
 
 ```{r naive-sig}
-res_tbl
+res_tbl %>%
 ```
 
 ---
 
 # Part 4: What might have gone wrong?
 
-You'll notice that we observe only 146 genes that are differentially expressed.
-When this experiment was performed, the scientists involved were surprised that
-the effect was so small and expected more genes to be changed.
+You'll notice that we observe a small (subjective) amount of genes that are
+differentially expressed. When this experiment was performed, the scientists
+involved were surprised that the effect was so small and expected more genes to
+be changed.
 
 That suspicion alone did not allow for any firm conclusions since there are any number
 of technical and biological reasons for this, including:
@@ -474,7 +468,7 @@ on gene expression (i.e. more genes that are changed between conditions)
 **Discuss** with your classmates around you what you suspect might be the issue
 in this dataset. *Hint*: This is hard, and you're doing this with very little
 context, but you technically have all the information you need in the counts matrix
-and  YOu 
+and the colData.
 
 **Q4.1** Write down your best hypothesis, and the evidence from this lab that supports it.
 We'll discuss as a class before moving on to the re-analysis.

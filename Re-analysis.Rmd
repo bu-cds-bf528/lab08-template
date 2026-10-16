@@ -1,5 +1,5 @@
 ---
-title: "Lab 3 (Part 2): Re-analysis with a covariate"
+title: "Lab 08 (Part 2): Re-analysis with a covariate"
 output:
   html_document:
     toc: true
@@ -118,7 +118,8 @@ Does every litter contain both WT and KO mice?
 ## 1.4 Build the DESeq2 object
 
 DESeq2 convention is to put the variable you're testing **last** in the design formula and
-any covariates before it. This will 
+any covariates before it. This will test for changes in condition while accounting for
+litter. 
 
 ```{r dds-build}
 mat <- counts %>% column_to_rownames("gene_id") %>% as.matrix()
@@ -173,10 +174,10 @@ We fit both models on the same filtered data so the comparison is fair.
 
 ```{r deseq-both}
 # The original model: ~ condition
-dds_naive <- dds_cov
-design(dds_naive) <- ~ condition
-dds_naive <- DESeq(dds_naive)
-res_naive <- results(dds_naive, name = "condition_KO_vs_WT")
+dds_basic <- dds_cov
+design(dds_basic) <- ~ condition
+dds_basic <- DESeq(dds_basic)
+res_basic <- results(dds_basic, name = "condition_KO_vs_WT")
 
 # The revisited model: ~ litter + condition
 dds_cov <- DESeq(dds_cov)
@@ -184,7 +185,6 @@ res_cov <- results(dds_cov, name = "condition_KO_vs_WT")
 ```
 
 ```{r cov-tibble}
-# TODO: convert res_cov to a tibble, arrange by padj
 res_tbl <- res_cov %>% as_tibble(rownames = "gene_id") %>% arrange(padj)
 res_tbl
 ```
@@ -201,20 +201,21 @@ Hint: You can take advantage of how TRUE values are counted.
 # Part 4: Genes gained by adding the covariate
 
 Generate code that will create a list of genes that are significant
-at the **same** threshold from the res_naive and res_cov tables. 
+at the **same** threshold from the res_basic and res_cov tables. 
 
 Then, find genes that are considered significant only after adding litter
 to the model. 
 
 ```{r gained-find}
 # Significant genes (padj < 0.1) from each model
-sig_naive <- res_naive %>%
+sig_basic <- res_basic %>%
 
 
 sig_cov <- res_cov %>%
   
 
 # Genes significant ONLY after adding litter to the model
+# gained must be a tibble that contains `gene_id` sorted by `padj`
 gained <- 
 ```
 
@@ -226,9 +227,9 @@ gene_of_interest <- gained$gene_id[1]
 # Compare its statistics in the two models
 tibble(
   model          = c("~ condition", "~ litter + condition"),
-  log2FoldChange = c(res_naive[gene_of_interest, "log2FoldChange"],
+  log2FoldChange = c(res_basic[gene_of_interest, "log2FoldChange"],
                      res_cov[gene_of_interest, "log2FoldChange"]),
-  padj           = c(res_naive[gene_of_interest, "padj"],
+  padj           = c(res_basic[gene_of_interest, "padj"],
                      res_cov[gene_of_interest, "padj"])
 )
 ```
@@ -273,20 +274,19 @@ re-run the plots. Is the pattern the same?
 ## Joining the gene names
 
 Your pipeline should have generated a delimited-file that contains the mapping
-of every ensemble gene ID to its corresponding gene symbol (human readable gene
+of every Ensembl gene ID to its corresponding gene symbol (human readable gene
 names). 
 
 Once you have performed differential expression, you'll often want to convert 
 those IDs to symbols to be more easily interpretable. As above, you would first
 read in the gene id to symbol mapping into a tibble based on how your file is
-delimited, `read_csv` for commas and `read_tsv` for tabs. You woudl then use a 
+delimited, `read_csv` for commas and `read_tsv` for tabs. You would then use a 
 `join` to join that tables information (gene symbol) into the DE results table 
 on the common column (gene_id). You will need to look at the function definition
 to handle the situation where your columns that hold the keys have different names. 
 
-You can practice here with the included file. Remember that this is species-specific,
-so this will only be valid for mice. 
-
+You can practice here with the included file `gencode.vM10.gene_id_name.tsv`. 
+Remember that this is species-specific, so this will only be valid for mice. 
 
 ## Generating a ranked list of genes by Log2FoldChange
 
