@@ -390,7 +390,8 @@ dds <- dds[keep, ]
 nrow(dds)
 ```
 
-**Q2.1** How many genes did you remove?
+**Q2.1** How many genes did you remove? How would you be confident in the effects of
+your filtering?
 
 ## 2.3 PCA and sample distances
 
