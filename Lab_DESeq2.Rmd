@@ -1,0 +1,480 @@
+---
+title: "Lab 3: Differential expression with DESeq2"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Learning objectives
+
+By the end of this lab you should be able to:
+
+1. Read, reshape, and plot tabular data in R using the tidyverse.
+2. Build a `DESeqDataSet`, run differential expression, and interpret the results table.
+3. Use exploratory plots (PCA, sample distance heatmaps) to assess the quality and structure of your samples.
+4. Reason about what a "no significant genes" result can and cannot tell you.
+
+# Background
+
+We have bulk RNA-seq from **8 mice**: 4 wild-type (WT) and 4 knockout (KO). Reads were
+aligned and counted per gene with `verse`. Our question is simple:
+
+> **Which genes are differentially expressed between KO and WT?**
+
+Each sample is named `<genotype>_<mouse ID>`, e.g. `KO_840`.
+
+This was a real experiment, and the information given here is what was originally
+available.
+
+---
+
+# Part 0: Getting started with R
+
+You don't need to know any R before this lab. This part covers everything you need for
+Part 1. In later parts you'll write some code yourself, usually by adapting an example
+from earlier in the lab. The goal is to understand what the code does. If you're
+already experienced with R, you can skip this part.
+
+## 0.1 How this document works
+
+This file is an **R Markdown** document (`.Rmd`). It mixes ordinary text (like this
+paragraph) with **code chunks**: grey boxes that start with ` ```{r} `.
+
+- **Run one chunk:** click the green ▶ arrow at the top right of the chunk, or put your
+  cursor inside it and press **Ctrl+Shift+Enter** (Mac: **Cmd+Shift+Enter**).
+- **Run one line:** put your cursor on the line and press **Ctrl+Enter** (Mac: **Cmd+Enter**).
+- The output appears directly under the chunk.
+
+> **Run chunks in order.** Many chunks use results from earlier ones. If you see
+> `Error: object 'something' not found`, you probably skipped a chunk above.
+
+Try it: run the chunk below.
+
+```{r first-chunk}
+2 + 3
+```
+
+## 0.2 Comments
+
+A `#` is the comment symbol in R.
+
+```{r comments}
+# This line does nothing
+10 * 4   # R runs the code before the #, and ignores the rest
+```
+
+## 0.3 Saving results in objects
+
+The arrow `<-` stores a value under a name so you can use it later, exactly the
+same concept as assigning values to variables in other languages.
+
+```{r objects}
+x <- 5
+y <- x * 2
+y
+```
+
+Typing an object's name on its own line prints it.
+
+## 0.4 Functions
+
+A **function** does something to its inputs, called **arguments**, which go inside
+parentheses and are separated by commas. Some arguments have names.
+
+```{r functions}
+round(3.14159)               # one argument
+round(3.14159, digits = 2)   # a second, named argument
+```
+
+To read the help page for any function, type `?round` in the **Console** (bottom left).
+
+## 0.5 Vectors: lists of values
+
+`c()` ("combine") makes a **vector**, which is a list of values of the same type.
+
+```{r vectors}
+read_depths <- c(40, 91, 79, 75)      # numbers
+mean(read_depths)
+
+genotypes <- c("WT", "KO", "WT", "KO") # text ("character") values go in quotes
+genotypes
+```
+
+## 0.6 Packages
+
+A **package** is a bundle of extra functions that someone else wrote. We use:
+
+- **tidyverse**: reading, reshaping, and plotting tables
+- **DESeq2**: differential expression analysis
+- **pheatmap** and **RColorBrewer**: heatmaps and color palettes
+
+You **install** a package once per computer, and **load** it with `library()` at the start
+of every session. These packages should already be installed in the class environment.
+If `library()` gives you an error, copy the lines from the install chunk below into the
+Console and run them once. The chunk is set not to run when you knit (`eval=FALSE`).
+Installing can take several minutes. If R asks "Update all/some/none?", type `n` and
+press Enter.
+
+These packages below should already be installed by default on the SCC. 
+
+
+```{r libraries}
+# Run every session
+library(tidyverse)
+library(DESeq2)
+library(pheatmap)
+library(RColorBrewer)
+```
+
+## 0.7 Working with tables in the tidyverse
+
+Most of the table work in this lab uses a handful of tidyverse functions. To practice,
+here is a small made-up table. `tibble()` builds a table one column at a time.
+
+The tidyverse set of functions were designed  to be intuitive, expressive, and 
+you should almost be able to read tidyverse code as plain text. You'll notice
+that most tidyverse functions are named as verbs that describe what it does, and
+you chain them together in the steps that you are performing on the data. 
+
+```{r toy-table}
+genes <- tibble(
+  gene   = c("Actb", "Gapdh", "Sox2", "Pax6", "Alb", "Ttr"),
+  tissue = c("brain", "brain", "brain", "brain", "liver", "liver"),
+  count  = c(1500, 2200, 340, 15, 5000, 4100),
+  length = c(1.9, 1.4, 2.5, 3.2, 2.1, 0.8)   # kilobases
+)
+genes
+```
+
+**The pipe, `%>%`**, passes the table on its left into the function on its right. Read it
+as "and then". It works much like the bash `|` pipe. Every function below takes a table and
+returns a new table, so they can be chained together with pipes.
+
+`select()` keeps **columns**:
+
+```{r toy-select}
+genes %>% select(gene, count)      # keep only these columns
+genes %>% select(-length)          # keep everything except length
+```
+
+`filter()` keeps **rows** that meet a condition:
+
+```{r toy-filter}
+genes %>% filter(count > 1000)                       # one condition
+genes %>% filter(tissue == "brain", count > 100)     # both conditions must be true
+genes %>% filter(gene %in% c("Sox2", "Alb"))         # gene is one of these
+```
+
+`mutate()` adds a new column, or changes an existing one:
+
+```{r toy-mutate}
+genes %>% mutate(count_per_kb = count / length)
+```
+
+`arrange()` sorts rows. Wrap the column in `desc()` for largest first:
+
+```{r toy-arrange}
+genes %>% arrange(desc(count))
+```
+
+Chain several steps together, and save the result with `<-`:
+
+```{r toy-chain}
+brain_top <- genes %>%
+  filter(tissue == "brain") %>%                  # brain genes only
+  mutate(count_per_kb = count / length) %>%      # add a column
+  arrange(desc(count_per_kb)) %>%                # sort, largest first
+  select(gene, count_per_kb)                     # keep two columns
+brain_top
+```
+
+None of these functions change `genes` itself. Print `genes` again and you'll see it is
+unchanged. To keep a result, assign it to a name, as with `brain_top` above.
+
+---
+
+# Part 1: Loading and tidying the counts
+
+Most of the code in this lab comes directly from the
+[DESeq2 tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html).
+
+All the code in this part is provided. Run each chunk, read the comments, and answer the
+questions.
+
+## 1.1 Read the counts into R
+
+The counts are in a **tab-separated** text file, which is a spreadsheet saved as plain text.
+`read_tsv()` reads it into a table. In R, a table is called a **data frame**. The tidyverse
+version of a data frame is called a **tibble**, and the `read_tsv` function reads
+in this TSV as a tibble. 
+
+```{r read-raw}
+# The file must be in the same folder as this .Rmd
+raw <- read_tsv("all_verse_counts.tsv")
+```
+
+Now look at what we loaded:
+
+```{r inspect}
+head(raw)        # the first 6 rows
+dim(raw)         # number of rows, number of columns
+colnames(raw)    # the column names
+```
+
+Each **row** is a gene and each **column** is a sample. Each number is the count of reads
+that mapped to that gene in that sample. You can also click `raw` in the Environment pane
+to open it like a spreadsheet.
+
+To pull out a single column, use `$`:
+
+```{r dollar}
+head(raw$gene_id)
+```
+
+**Q1.1** How many genes are in the table?
+
+**Q1.2** How many genes **should** be in the table, and how would you know this?
+
+## 1.2 The pipe: `%>%`
+
+You met the pipe, `%>%`, in section 0.7. It works with any function, not only the tidyverse
+ones, and here it is on the real data.
+
+```{r pipe}
+# These two lines do the same thing:
+head(colnames(raw))
+raw %>% colnames() %>% head()   # "take raw, then get its column names, then show the first few"
+```
+
+The pipe is easier to read when there are many steps, so you'll see it a lot.
+
+## 1.3 Clean up the table
+
+There are two problems to fix:
+
+1. The first column is a leftover row number from the program that wrote the file. It
+   isn't data.
+2. Every sample name ends in `_count`, which is not needed for further analysis.
+
+You should end up with a dataframe that has a column for the gene_id and a column
+for all 8 samples. The number of rows represents the number of genes in the
+experiment.
+
+```{r clean}
+counts <- raw %>%
+  select(-1) %>%                                   # drop column number 1
+  rename_with(~ str_remove(.x, "_count"))          # remove "_count" from every column name
+
+head(counts)
+```
+
+- `select()` chooses columns. A minus sign means "everything **except**".
+- `rename_with()` applies the same renaming rule to every column name. Here the rule is
+  `str_remove(.x, "_count")`, where `.x` stands for "each name".
+
+**Q1.3** Print `colnames(counts)`. Do the sample names now look like `WT_842`?
+
+## 1.4 Wide vs. long tables
+
+`counts` is a **wide** table, with one column per sample:
+
+| gene_id | WT_842 | KO_857 | ... |
+|---------|--------|--------|-----|
+| geneA   | 237    | 1397   | ... |
+
+Most plotting functions want a **long** table instead, with one row per measurement:
+
+| gene_id | sample | count |
+|---------|--------|-------|
+| geneA   | WT_842 | 237   |
+| geneA   | KO_857 | 1397  |
+
+`pivot_longer()` converts wide to long. Then `separate()` splits `"WT_842"` into a genotype
+column and a mouse column.
+
+```{r pivot}
+counts_long <- counts %>%
+  pivot_longer(-gene_id,                         # every column except gene_id...
+               names_to  = "sample",             # ...the old column names go here
+               values_to = "count") %>%          # ...the numbers go here
+  separate(sample,
+           into = c("condition", "mouse"),       # split on the "_"
+           remove = FALSE)                       # keep the original sample column too
+
+head(counts_long)
+```
+
+**Q1.4** `counts` has 8 sample columns. How many rows should `counts_long` have? Check with
+`nrow(counts_long)`.
+
+## 1.5 Your first plot
+
+R draws plots with **ggplot**. A ggplot is built from layers joined with `+`:
+
+1. `ggplot(data, aes(...))` says which table to use and which columns go on which axis.
+   `aes()` stands for "aesthetics".
+2. A `geom_...()` says what to draw: bars, points, lines, and so on.
+3. Optional extra layers change labels, colors, and themes.
+
+Here are the raw counts for one gene across all 8 samples:
+
+```{r first-plot}
+counts_long %>%
+  filter(gene_id == "ENSMUSG00000051951.5") %>%          # keep only rows for one gene
+  ggplot(aes(x = sample, y = count, fill = condition)) + # map columns to the plot
+  geom_col() +                                           # draw bars
+  labs(title = "ENSMUSG00000051951.5", y = "Raw read count")
+```
+
+Note that `==` **tests** whether two things are equal, while `=` and `<-` **assign** values.
+
+**Try it:** copy the chunk above and change the gene ID (in both places) to
+`"ENSMUSG00000025902.13"`. Then try changing `geom_col()` to `geom_point(size = 3)`.
+
+## 1.6 The sample table
+
+DESeq2 needs a second table that describes each sample. It's called **colData** because it
+describes the *columns* of the count matrix. We build it from the sample names.
+
+```{r coldata}
+coldata <- tibble(sample = colnames(counts)[-1]) %>%   # all column names except gene_id
+  separate(sample, into = c("condition", "mouse"), remove = FALSE) %>% # separate splits the sample name on the _
+  mutate(condition = factor(condition, levels = c("WT", "KO"))) # we turn condition into a factor
+coldata
+```
+
+- `[-1]` means "everything except the first item".
+- `mutate()` creates or changes a column.
+- `factor()` tells R that `condition` is a category with a fixed set of levels. The **first
+  level is the reference**, which is the group everything else is compared against.
+
+**Q1.5** Why do we want `WT` as the reference level? If KO were the reference, what
+would happen to the sign (+/−) of the fold changes?
+
+---
+
+# Part 2: Quality control and exploration
+
+## 2.1 Build the DESeq2 object
+
+```{r dds-first}
+# Need to convert the counts to a matrix
+mat <- counts %>% column_to_rownames("gene_id") %>% as.matrix()
+
+# Constructs the DESeq2 object that bundles the counts, coldata, and design formula together
+# TO DO: Read the DESeq2 vignette and use the appropriate function to generate the DESeq2 object
+dds <- 
+
+
+
+dds
+```
+
+Our design is `~condition` which instructs DESeq2 to model the gene counts as
+a function of a single experimental factor. In our case, this condition represents
+the difference between our wild-type and KO mice of interest. DESeq2 will fit
+a generalized linear model (GLM) to each gene, assuming its counts can be modeled
+by a negative binomial distribution. 
+ 
+## 2.2 Filter low-count genes
+
+Genes with almost no reads carry no information and only add to the multiple-testing
+burden. `counts(dds)` returns the count matrix stored inside `dds`. This filtering
+strategy comes directly from the DESeq2 vignette, but in the future, you likely
+want to come up with more elegant filtering strategies that also take into
+consideration the number of replicates in each condition. 
+
+```{r filter}
+
+keep <- rowSums(counts(dds) >= 10) >= 4
+dds <- dds[keep, ]
+nrow(dds)
+```
+
+**Q2.1** How many genes did you remove?
+
+## 2.3 PCA and sample distances
+
+Many machine learning methods including PCA, and clustering assume roughly
+constant variance across features. RNA-seq count data explicitly breaks this
+assumption as the variance scales with the mean. The DESeq2 variance stabilizing
+transformation (vst) is one possible method to stabilize the variance. 
+
+```{r vst-pca}
+# This is directly from the DESeq2 vignette
+# Makes a PCA biplot colored by metadata from our samples
+# TO DO: Read the DESeq2 vignette and use the appropriate function to generate the variance stabilized transformation
+# TO DO: Call the plotPCA function and color it by condition
+
+```
+
+```{r dist-heatmap}
+# Also directly from the DEseq2 vignette
+# TO DO: Read the DESeq2 vignette and use the appropriate function to generate the sample distances
+# TO DO: Create a heatmap of the sample distances
+
+```
+
+**Q2.2** What does PC1 separate? Does it match genotype?
+
+**Q2.3** In the heatmap, which samples are most similar to each other? Write down your
+hypothesis for what is driving this structure.
+
+---
+
+# Part 3: The initial analysis (`~ condition`)
+
+```{r deseq-basic}
+# This runs the DESeq2 method - normalization, testing of each gene with a GLM
+# TO DO: Read the DESeq2 vignette and use the appropriate function to run the DESeq2 method
+dds <- 
+
+
+# This makes the results available in a data frame
+res_basic <- results(dds, name = "condition_KO_vs_WT")
+```
+
+```{r naive-tibble}
+# TODO: convert to tibble, arrange by padj
+res_tbl <- 
+res_tbl
+```
+
+**Q3.1** How many genes are significant at `padj < 0.1`? Use the `filter()` function.
+
+```{r naive-sig}
+res_tbl
+```
+
+---
+
+# Part 4: What might have gone wrong?
+
+You'll notice that we observe only 146 genes that are differentially expressed.
+When this experiment was performed, the scientists involved were surprised that
+the effect was so small and expected more genes to be changed.
+
+That suspicion alone did not allow for any firm conclusions since there are any number
+of technical and biological reasons for this, including:
+
+1. The knockout of the gene truly has a small or no biological effect.
+2. The samples were of poor quality, or the pipeline didn't process them correctly.
+
+As it happens, the researchers in question were fairly confident that the rest
+of the experiment was successful and of high quality, and that there *should* be,
+based on their other knowledge and experiments, a more robust effect
+on gene expression (i.e. more genes that are changed between conditions)
+
+**Discuss** with your classmates around you what you suspect might be the issue
+in this dataset. *Hint*: This is hard, and you're doing this with very little
+context, but you technically have all the information you need in the counts matrix
+and  YOu 
+
+**Q4.1** Write down your best hypothesis, and the evidence from this lab that supports it.
+We'll discuss as a class before moving on to the re-analysis.
