@@ -472,3 +472,16 @@ and the colData.
 
 **Q4.1** Write down your best hypothesis, and the evidence from this lab that supports it.
 We'll discuss as a class before moving on to the re-analysis.
+
+
+---
+
+# Part 5: Copy the Re-analysis notebook
+
+Please run the following command so you can grab the notebook with the added 
+biological context:
+
+
+```bash
+cp /projectnb/bf528/materials/labs/lab08/Re-analysis.Rmd .
+```
